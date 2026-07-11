@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LanguageData>
+  <EzTrade_TradeWith>{name}와 거래 (사교 {socialLevel})</EzTrade_TradeWith>
+  <EzTrade_NoAvailableNegotiator>거래할 수 없음: 가능한 주민이 없습니다</EzTrade_NoAvailableNegotiator>
+  <EzTrade_TradeNoLongerAvailable>{name}은(는) 더 이상 이 상인과 거래할 수 없습니다.</EzTrade_TradeNoLongerAvailable>
+</LanguageData>

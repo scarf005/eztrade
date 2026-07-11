@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net472</TargetFramework>
+    <OutputType>Library</OutputType>
+    <AssemblyName>EzTrade</AssemblyName>
+    <RootNamespace>EzTrade</RootNamespace>
+    <DebugSymbols>false</DebugSymbols>
+    <DebugType>none</DebugType>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+    <OutputPath>../../1.6/Assemblies/</OutputPath>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="EzTrade.fs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Update="FSharp.Core" Version="4.7.2" ExcludeAssets="runtime" />
+    <PackageReference Include="Krafs.Rimworld.Ref" Version="1.6.4871" PrivateAssets="All" />
+    <PackageReference Include="Lib.Harmony" Version="2.3.6" PrivateAssets="All" ExcludeAssets="runtime" />
+    <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies.net472" Version="1.0.3" PrivateAssets="All" />
+  </ItemGroup>
+</Project>

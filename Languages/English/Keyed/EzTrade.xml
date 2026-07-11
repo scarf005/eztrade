@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LanguageData>
+  <EzTrade_TradeWith>Trade with {name} (Social {socialLevel})</EzTrade_TradeWith>
+  <EzTrade_NoAvailableNegotiator>Cannot trade: no available pawn</EzTrade_NoAvailableNegotiator>
+  <EzTrade_TradeNoLongerAvailable>{name} can no longer trade with this merchant.</EzTrade_TradeNoLongerAvailable>
+</LanguageData>
