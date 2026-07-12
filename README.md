@@ -2,7 +2,7 @@
 
 ![](./About/Preview.png)
 
-Right click to merchant to trade with your highest social level pawn directly
+Right-click a merchant to trade directly with the available pawn who has the best trade price improvement.
 
 ## Dependency
 

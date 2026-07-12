@@ -3,7 +3,7 @@
   <name>EzTrade</name>
   <author>scarf</author>
   <packageId>scarf.eztrade</packageId>
-  <modVersion>1.0.0</modVersion>
+  <modVersion>1.0.1</modVersion>
   <supportedVersions>
     <li>1.6</li>
   </supportedVersions>
@@ -25,5 +25,5 @@
     <li>brrainz.harmony</li>
     <li>latta.fsharp.core</li>
   </loadAfter>
-  <description>Right-click to trade with merchant with your highest social level pawn</description>
+  <description>Right-click a merchant to trade with your best available negotiator</description>
 </ModMetaData>

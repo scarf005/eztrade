@@ -9,7 +9,7 @@ open Verse.AI
 
 module internal PawnExtensions =
     type Pawn with
-        member internal pawn.SocialLevel = pawn.skills.GetSkill(SkillDefOf.Social).Level
+        member internal pawn.TradePriceImprovement = pawn.GetStatValue(StatDefOf.TradePriceImprovement)
 
 open PawnExtensions
 
@@ -32,7 +32,7 @@ module internal EzTradeOrders =
         | map ->
             map.mapPawns.AllPawnsSpawned
             |> Seq.filter (canNegotiateWith (trader))
-            |> Seq.sortBy (fun pawn -> -pawn.SocialLevel, pawn.thingIDNumber)
+            |> Seq.sortBy (fun pawn -> -pawn.TradePriceImprovement, pawn.thingIDNumber)
             |> Seq.tryHead
 
     let private startTrade (negotiator: Pawn) (trader: Pawn) =
@@ -49,7 +49,10 @@ module internal EzTradeOrders =
         match bestNegotiatorFor trader with
         | None -> FloatMenuOption("EzTrade_NoAvailableNegotiator".Translate() |> string, null)
         | Some negotiator ->
-            let label = "EzTrade_TradeWith".Translate(negotiator.LabelShort.Named("name"), negotiator.SocialLevel.Named("socialLevel")) |> string
+            let label =
+                "EzTrade_TradeWith"
+                    .Translate(negotiator.LabelShort.Named("name"), negotiator.TradePriceImprovement.ToStringPercent().Named("tradePriceImprovement"))
+                |> string
             let option = FloatMenuOption(label, (fun () -> startTrade negotiator trader), MenuOptionPriority.InitiateSocial, null, trader)
             option.iconThing <- negotiator
             FloatMenuUtility.DecoratePrioritizedTask(option, negotiator, LocalTargetInfo(trader))
