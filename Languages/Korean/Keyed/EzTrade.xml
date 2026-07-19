@@ -3,4 +3,12 @@
   <EzTrade_TradeWith>{name}와 거래 (거래 가격 개선 {tradePriceImprovement})</EzTrade_TradeWith>
   <EzTrade_NoAvailableNegotiator>거래할 수 없음: 가능한 주민이 없습니다</EzTrade_NoAvailableNegotiator>
   <EzTrade_TradeNoLongerAvailable>{name}은(는) 더 이상 이 상인과 거래할 수 없습니다.</EzTrade_TradeNoLongerAvailable>
+
+  <PodTrade.Fulfilled>수송 포드를 통해 {settlement}의 교환 요청을 완수했습니다.</PodTrade.Fulfilled>
+  <PodTrade.RewardsDropped>교환 요청 보상이 정착지에 드롭 포드로 도착했습니다.</PodTrade.RewardsDropped>
+  <PodTrade.ConfirmTitle>수송 포드 발사</PodTrade.ConfirmTitle>
+  <PodTrade.ConfirmDesc>수송 포드를 발사하여 {settlement}의 교환 임무({requestThingCount}개 {requestedThingLabel})를 완료하시겠습니까?</PodTrade.ConfirmDesc>
+  <PodTrade.ConfirmDescLeftover>수송 포드를 발사하여 {settlement}의 교환 임무({requestThingCount}개 {requestedThingLabel})를 완료하시겠습니까?\n\n남은 적재물은 선물로 전송됩니다 (+{score}).</PodTrade.ConfirmDescLeftover>
+  <PodTrade.Fulfill>{questName} 완료</PodTrade.Fulfill>
+  <PodTrade.FulfillLeftover>{questName} 완료 (남은 잉여 선물 +{score})</PodTrade.FulfillLeftover>
 </LanguageData>

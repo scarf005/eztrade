@@ -2,7 +2,8 @@
 
 ![](./About/Preview.png)
 
-Right-click a merchant to trade directly with the available pawn who has the best trade price improvement.
+- Complete trade request by sending pods
+- Right-click a merchant to trade directly with the available pawn who has the best trade price improvement.
 
 ## Dependency
 

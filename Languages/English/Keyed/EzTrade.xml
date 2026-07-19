@@ -3,4 +3,12 @@
   <EzTrade_TradeWith>Trade with {name} (Trade price improvement {tradePriceImprovement})</EzTrade_TradeWith>
   <EzTrade_NoAvailableNegotiator>Cannot trade: no available pawn</EzTrade_NoAvailableNegotiator>
   <EzTrade_TradeNoLongerAvailable>{name} can no longer trade with this merchant.</EzTrade_TradeNoLongerAvailable>
+
+  <PodTrade.Fulfilled>Fulfilled the trade request from {settlement} via transport pods.</PodTrade.Fulfilled>
+  <PodTrade.RewardsDropped>Quest rewards have been delivered to your settlement via drop pods.</PodTrade.RewardsDropped>
+  <PodTrade.ConfirmTitle>Launch Transport Pod</PodTrade.ConfirmTitle>
+  <PodTrade.ConfirmDesc>Launch transport pods to fulfill the trade request ({requestThingCount}x {requestedThingLabel}) at {settlement}?</PodTrade.ConfirmDesc>
+  <PodTrade.ConfirmDescLeftover>Launch transport pods to fulfill the trade request ({requestThingCount}x {requestedThingLabel}) at {settlement}?\n\nAny leftover items will be sent as a gift (+{score}).</PodTrade.ConfirmDescLeftover>
+  <PodTrade.Fulfill>Fulfill {questName}</PodTrade.Fulfill>
+  <PodTrade.FulfillLeftover>Fulfill {questName} (leftover gift +{score})</PodTrade.FulfillLeftover>
 </LanguageData>
