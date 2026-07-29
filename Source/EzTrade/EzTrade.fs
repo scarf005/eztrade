@@ -235,7 +235,6 @@ module TransportersArrivalAction_GiveGift_GetFloatMenuOptions_Patch =
     let Prefix
         (
             __result: byref<System.Collections.Generic.IEnumerable<FloatMenuOption>>,
-            __instance: TransportersArrivalAction_GiveGift,
             launchAction: Action<PlanetTile, TransportersArrivalAction>,
             pods: seq<IThingHolder>,
             settlement: Settlement
@@ -317,13 +316,21 @@ module TransportersArrivalAction_GiveGift_GetFloatMenuOptions_Patch =
                             let label =
                                 "GiveGiftViaTransportPods".Translate(settlement.Faction.Name.Named("factionName"), goodwillChange.Named("goodwillChange"))
                                 |> string
-                            let opt = FloatMenuOption(label, Action(fun () -> launchAction.Invoke(PlanetTile(settlement.Tile), __instance)))
+                            let opt =
+                                FloatMenuOption(
+                                    label,
+                                    Action(fun () -> launchAction.Invoke(PlanetTile(settlement.Tile), TransportersArrivalAction_GiveGift(settlement)))
+                                )
                             optionList.Add(opt)
                     else
                         let goodwillChange = FactionGiftUtility.GetGoodwillChange(pods, settlement)
                         let label =
                             "GiveGiftViaTransportPods".Translate(settlement.Faction.Name.Named("factionName"), goodwillChange.Named("goodwillChange")) |> string
-                        let opt = FloatMenuOption(label, Action(fun () -> launchAction.Invoke(PlanetTile(settlement.Tile), __instance)))
+                        let opt =
+                            FloatMenuOption(
+                                label,
+                                Action(fun () -> launchAction.Invoke(PlanetTile(settlement.Tile), TransportersArrivalAction_GiveGift(settlement)))
+                            )
                         optionList.Add(opt)
 
                     __result <- (optionList :> System.Collections.Generic.IEnumerable<FloatMenuOption>)
