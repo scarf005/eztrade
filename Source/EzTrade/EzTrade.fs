@@ -339,6 +339,31 @@ module TransportersArrivalAction_GiveGift_GetFloatMenuOptions_Patch =
             __result <- Seq.empty
         false
 
+module internal ImpassableLaunch =
+    let addOceanOption (options: seq<FloatMenuOption>) (tile: PlanetTile) (launchAction: Action<PlanetTile, TransportersArrivalAction>) =
+        if tile.Valid && Find.World.Impassable(tile) then
+            let oceanOption =
+                FloatMenuOption(
+                    "EzTrade_DumpInOcean".Translate() |> string,
+                    Action(fun () -> launchAction.Invoke(tile, null)),
+                    MenuOptionPriority.Default,
+                    null,
+                    null
+                )
+            Seq.append options [ oceanOption ]
+        else
+            options
+
+[<HarmonyPatch(typeof<CompLaunchable>, "GetTransportersFloatMenuOptionsAt")>]
+module GetTransportersFloatMenuOptionsAt_Patch =
+    let Postfix (__result: seq<FloatMenuOption>, tile: PlanetTile, launchAction: Action<PlanetTile, TransportersArrivalAction>) =
+        ImpassableLaunch.addOceanOption __result tile launchAction
+
+[<HarmonyPatch(typeof<CompLaunchable>, "GetOptionsForTile")>]
+module GetOptionsForTile_Patch =
+    let Postfix (__result: seq<FloatMenuOption>, tile: PlanetTile, launchAction: Action<PlanetTile, TransportersArrivalAction>) =
+        ImpassableLaunch.addOceanOption __result tile launchAction
+
 [<HarmonyPatch(typeof<QuestPart_GiveToCaravan>, "Notify_QuestSignalReceived")>]
 module QuestPart_GiveToCaravan_Patch =
     let Prefix (__instance: QuestPart_GiveToCaravan, signal: RimWorld.Signal) =

@@ -11,4 +11,6 @@
   <PodTrade.ConfirmDescLeftover>Launch transport pods to fulfill the trade request ({requestThingCount}x {requestedThingLabel}) at {settlement}?\n\nAny leftover items will be sent as a gift (+{score}).</PodTrade.ConfirmDescLeftover>
   <PodTrade.Fulfill>Fulfill {questName}</PodTrade.Fulfill>
   <PodTrade.FulfillLeftover>Fulfill {questName} (leftover gift +{score})</PodTrade.FulfillLeftover>
+
+  <EzTrade_DumpInOcean>Dump contents (will be lost)</EzTrade_DumpInOcean>
 </LanguageData>

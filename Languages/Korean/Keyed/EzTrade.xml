@@ -11,4 +11,6 @@
   <PodTrade.ConfirmDescLeftover>수송 포드를 발사하여 {settlement}의 교환 임무({requestThingCount}개 {requestedThingLabel})를 완료하시겠습니까?\n\n남은 적재물은 선물로 전송됩니다 (+{score}).</PodTrade.ConfirmDescLeftover>
   <PodTrade.Fulfill>{questName} 완료</PodTrade.Fulfill>
   <PodTrade.FulfillLeftover>{questName} 완료 (남은 잉여 선물 +{score})</PodTrade.FulfillLeftover>
+
+  <EzTrade_DumpInOcean>적재물 투기 (소실됨)</EzTrade_DumpInOcean>
 </LanguageData>
