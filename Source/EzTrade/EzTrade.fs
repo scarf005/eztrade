@@ -9,6 +9,7 @@ open RimWorld.Planet
 open UnityEngine
 open Verse
 open Verse.AI
+open Verse.AI.Group
 
 module internal PawnExtensions =
     type Pawn with
@@ -18,6 +19,20 @@ open PawnExtensions
 
 module internal EzTradeOrders =
     let isAvailableTrader (pawn: Pawn) = not (isNull pawn.TraderKind) && pawn.CanTradeNow && not pawn.mindState.traderDismissed
+
+    let private isRatkinWanderingCaravanLeader (pawn: Pawn) =
+        let lord = pawn.GetLord()
+
+        if isNull lord || isNull lord.LordJob then
+            false
+        else
+            let job = lord.LordJob
+
+            job.GetType().FullName = "NewRatkin.LordJob_WanderingCaravan" && Traverse.Create(job).Field<Pawn>("leader").Value = pawn
+
+    let private tryGetRatkinTalkJob (trader: Pawn) =
+        if isRatkinWanderingCaravanLeader trader then DefDatabase<JobDef>.GetNamedSilentFail("RK_Job_TalkToCaravanLeader") |> Option.ofObj else None
+
     let canNegotiateWith (trader: Pawn) (pawn: Pawn) =
         pawn.CanTakeOrder
         && FloatMenuMakerMap.ShouldGenerateFloatMenuForPawn(pawn).Accepted
@@ -26,15 +41,24 @@ module internal EzTradeOrders =
         && pawn.CanReach(LocalTargetInfo(trader), PathEndMode.OnCell, Danger.Deadly)
         && pawn.CanTradeWith(trader.Faction, trader.TraderKind).Accepted
 
-    let traderAt clickPos =
-        GenUI.ThingsUnderMouse(clickPos, 0.8f, TargetingParameters.ForPawns()).OfType<Pawn>().FirstOrDefault(isAvailableTrader) |> Option.ofObj
+    let private canTalkToRatkinLeader (trader: Pawn) (pawn: Pawn) =
+        pawn.IsColonist
+        && pawn.CanTakeOrder
+        && FloatMenuMakerMap.ShouldGenerateFloatMenuForPawn(pawn).Accepted
+        && not (StatDefOf.TradePriceImprovement.Worker.IsDisabledFor(pawn))
+        && pawn.CanReach(LocalTargetInfo(trader), PathEndMode.Touch, Danger.Deadly)
 
-    let private bestNegotiatorFor (trader: Pawn) =
+    let traderAt clickPos =
+        let things = GenUI.ThingsUnderMouse(clickPos, 0.8f, TargetingParameters.ForPawns())
+
+        things.OfType<Pawn>().FirstOrDefault(fun pawn -> isAvailableTrader pawn || isRatkinWanderingCaravanLeader pawn) |> Option.ofObj
+
+    let private bestNegotiatorFor (trader: Pawn) canNegotiate =
         match trader.Map with
         | null -> None
         | map ->
             map.mapPawns.AllPawnsSpawned
-            |> Seq.filter (canNegotiateWith (trader))
+            |> Seq.filter (canNegotiate trader)
             |> Seq.sortBy (fun pawn -> -pawn.TradePriceImprovement, pawn.thingIDNumber)
             |> Seq.tryHead
 
@@ -48,8 +72,17 @@ module internal EzTradeOrders =
             negotiator.jobs.TryTakeOrderedJob(job, JobTag.Misc) |> ignore
             PlayerKnowledgeDatabase.KnowledgeDemonstrated(ConceptDefOf.InteractingWithTraders, KnowledgeAmount.Total)
 
-    let makeOption (trader: Pawn) =
-        match bestNegotiatorFor trader with
+    let private startRatkinTalk (talkJob: JobDef) (negotiator: Pawn) (trader: Pawn) =
+        if not (isRatkinWanderingCaravanLeader trader) || not (canTalkToRatkinLeader trader negotiator) then
+            let message = "EzTrade_TalkNoLongerAvailable".Translate(negotiator.LabelShort.Named("name")) |> string
+            Messages.Message(message, LookTargets(trader), MessageTypeDefOf.RejectInput, false)
+        else
+            let job = JobMaker.MakeJob(talkJob, LocalTargetInfo(trader))
+            job.playerForced <- true
+            negotiator.jobs.TryTakeOrderedJob(job, JobTag.Misc) |> ignore
+
+    let private makeTradeOption (trader: Pawn) =
+        match bestNegotiatorFor trader canNegotiateWith with
         | None -> FloatMenuOption("EzTrade_NoAvailableNegotiator".Translate() |> string, null)
         | Some negotiator ->
             let label =
@@ -59,6 +92,23 @@ module internal EzTradeOrders =
             let option = FloatMenuOption(label, (fun () -> startTrade negotiator trader), MenuOptionPriority.InitiateSocial, null, trader)
             option.iconThing <- negotiator
             FloatMenuUtility.DecoratePrioritizedTask(option, negotiator, LocalTargetInfo(trader))
+
+    let private makeRatkinTalkOption (trader: Pawn) (talkJob: JobDef) =
+        match bestNegotiatorFor trader canTalkToRatkinLeader with
+        | None -> FloatMenuOption("EzTrade_NoAvailableSpeaker".Translate() |> string, null)
+        | Some negotiator ->
+            let label =
+                "EzTrade_TalkWithRatkinCaravanLeader"
+                    .Translate(negotiator.LabelShort.Named("name"), negotiator.TradePriceImprovement.ToStringPercent().Named("tradePriceImprovement"))
+                |> string
+            let option = FloatMenuOption(label, (fun () -> startRatkinTalk talkJob negotiator trader), MenuOptionPriority.InitiateSocial, null, trader)
+            option.iconThing <- negotiator
+            FloatMenuUtility.DecoratePrioritizedTask(option, negotiator, LocalTargetInfo(trader))
+
+    let makeOption (trader: Pawn) =
+        match tryGetRatkinTalkJob trader with
+        | Some talkJob -> makeRatkinTalkOption trader talkJob
+        | None -> makeTradeOption trader
 
 [<HarmonyPatch(typeof<Selector>, "HandleMapClicks")>]
 module internal SelectorHandleMapClicksPatch =
