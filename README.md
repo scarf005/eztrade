@@ -8,7 +8,8 @@
 ## Dependency
 
 - [Harmony](https://steamcommunity.com/sharedfiles/filedetails/?id=2009463077)
-- [FSharp.Core](https://steamcommunity.com/sharedfiles/filedetails/?id=2059725183).
+- [FSharp.Core](https://steamcommunity.com/sharedfiles/filedetails/?id=2059725183) on RimWorld 1.6
+- [FSharp.Core (1.7)](https://steamcommunity.com/sharedfiles/filedetails/?id=3819630965) on RimWorld 1.7
 
 ## Build and local install
 
