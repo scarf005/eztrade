@@ -53,7 +53,7 @@ install-enable: install
     from pathlib import Path
 
     if subprocess.run(
-        ["pgrep", "-x", "RimWorldLinux"],
+        ["pgrep", "-x", "RimWorldLinux|RimWorld"],
         check=False,
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
