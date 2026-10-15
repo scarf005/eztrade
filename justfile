@@ -41,6 +41,7 @@ install: build
         --exclude '/README*' \
         --exclude '/LICENSE*' \
         --exclude '/justfile' \
+        --exclude '*~' \
         ./ "$destination/"
     printf 'Installed {{mod_directory}} to %s\n' "$destination"
 
