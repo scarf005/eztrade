@@ -1,76 +1,130 @@
 namespace EzTrade
 
 open System
+open System.Collections.Generic
 open System.Reflection
-open System.Linq
 open HarmonyLib
 open RimWorld
 open RimWorld.Planet
 open UnityEngine
 open Verse
 open Verse.AI
+open Verse.AI.Group
 
-module internal PawnExtensions =
+[<AutoOpen>]
+module internal Extensions =
     type Pawn with
         member internal pawn.TradePriceImprovement = pawn.GetStatValue(StatDefOf.TradePriceImprovement)
 
-open PawnExtensions
+module internal Fields =
+    let giftSettlement = AccessTools.FieldRefAccess<TransportersArrivalAction_GiveGift, Settlement>("settlement")
+    let caravanItems = AccessTools.FieldRefAccess<QuestPart_GiveToCaravan, List<Thing> | null>("items")
+    let caravanPawns = AccessTools.FieldRefAccess<QuestPart_GiveToCaravan, List<Pawn> | null>("pawns")
 
 module internal EzTradeOrders =
-    let isAvailableTrader (pawn: Pawn) = not (isNull pawn.TraderKind) && pawn.CanTradeNow && not pawn.mindState.traderDismissed
+    type private Order =
+        { IsTarget: Pawn -> bool
+          CanOrder: Pawn -> Pawn -> bool
+          Job: JobDef
+          LabelKey: string
+          NoPawnKey: string
+          UnavailableKey: string
+          OnStarted: unit -> unit }
+
+    let isAvailableTrader (pawn: Pawn) = pawn.TraderKind <> null && pawn.CanTradeNow && not pawn.mindState.traderDismissed
+
+    let private isRatkinWanderingCaravanLeader (pawn: Pawn) =
+        match pawn.GetLord() with
+        | null -> false
+        | lord ->
+            match lord.LordJob with
+            | NonNull job when job.GetType().FullName = "NewRatkin.LordJob_WanderingCaravan" -> Traverse.Create(job).Field<Pawn>("leader").Value = pawn
+            | _ -> false
+
     let canNegotiateWith (trader: Pawn) (pawn: Pawn) =
         pawn.CanTakeOrder
         && FloatMenuMakerMap.ShouldGenerateFloatMenuForPawn(pawn).Accepted
-        && not (isNull pawn.skills)
+        && pawn.skills <> null
         && not (pawn.skills.GetSkill(SkillDefOf.Social).TotallyDisabled)
         && pawn.CanReach(LocalTargetInfo(trader), PathEndMode.OnCell, Danger.Deadly)
         && pawn.CanTradeWith(trader.Faction, trader.TraderKind).Accepted
 
-    let traderAt clickPos =
-        GenUI.ThingsUnderMouse(clickPos, 0.8f, TargetingParameters.ForPawns()).OfType<Pawn>().FirstOrDefault(isAvailableTrader) |> Option.ofObj
+    let private canTalkToRatkinLeader (trader: Pawn) (pawn: Pawn) =
+        pawn.IsColonist
+        && pawn.CanTakeOrder
+        && FloatMenuMakerMap.ShouldGenerateFloatMenuForPawn(pawn).Accepted
+        && not (StatDefOf.TradePriceImprovement.Worker.IsDisabledFor(pawn))
+        && pawn.CanReach(LocalTargetInfo(trader), PathEndMode.Touch, Danger.Deadly)
 
-    let private bestNegotiatorFor (trader: Pawn) =
+    let traderAt clickPos =
+        GenUI.ThingsUnderMouse(clickPos, 0.8f, TargetingParameters.ForPawns())
+        |> Seq.tryPick (function
+            | :? Pawn as pawn when isAvailableTrader pawn || isRatkinWanderingCaravanLeader pawn -> Some pawn
+            | _ -> None)
+
+    let private bestNegotiatorFor (trader: Pawn) canOrder =
         match trader.Map with
         | null -> None
         | map ->
             map.mapPawns.AllPawnsSpawned
-            |> Seq.filter (canNegotiateWith (trader))
+            |> Seq.filter (canOrder trader)
             |> Seq.sortBy (fun pawn -> -pawn.TradePriceImprovement, pawn.thingIDNumber)
             |> Seq.tryHead
 
-    let private startTrade (negotiator: Pawn) (trader: Pawn) =
-        if not (isAvailableTrader trader) || not (canNegotiateWith trader negotiator) then
-            let message = "EzTrade_TradeNoLongerAvailable".Translate(negotiator.LabelShort.Named("name")) |> string
-            Messages.Message(message, LookTargets(trader), MessageTypeDefOf.RejectInput, false)
+    let private start (order: Order) (negotiator: Pawn) (trader: Pawn) =
+        if not (order.IsTarget trader) || not (order.CanOrder trader negotiator) then
+            Messages.Message(order.UnavailableKey.Translate(negotiator.LabelShort.Named("name")), LookTargets(trader), MessageTypeDefOf.RejectInput, false)
         else
-            let job = JobMaker.MakeJob(JobDefOf.TradeWithPawn, LocalTargetInfo(trader))
+            let job = JobMaker.MakeJob(order.Job, LocalTargetInfo(trader))
             job.playerForced <- true
             negotiator.jobs.TryTakeOrderedJob(job, JobTag.Misc) |> ignore
-            PlayerKnowledgeDatabase.KnowledgeDemonstrated(ConceptDefOf.InteractingWithTraders, KnowledgeAmount.Total)
+            order.OnStarted()
 
-    let makeOption (trader: Pawn) =
-        match bestNegotiatorFor trader with
-        | None -> FloatMenuOption("EzTrade_NoAvailableNegotiator".Translate() |> string, null)
+    let private orderOption (order: Order) (trader: Pawn) =
+        match bestNegotiatorFor trader order.CanOrder with
+        | None -> FloatMenuOption(string (order.NoPawnKey.Translate()), null)
         | Some negotiator ->
             let label =
-                "EzTrade_TradeWith"
-                    .Translate(negotiator.LabelShort.Named("name"), negotiator.TradePriceImprovement.ToStringPercent().Named("tradePriceImprovement"))
-                |> string
-            let option = FloatMenuOption(label, (fun () -> startTrade negotiator trader), MenuOptionPriority.InitiateSocial, null, trader)
+                order.LabelKey.Translate(negotiator.LabelShort.Named("name"), negotiator.TradePriceImprovement.ToStringPercent().Named("tradePriceImprovement"))
+
+            let option = FloatMenuOption(string label, (fun () -> start order negotiator trader), MenuOptionPriority.InitiateSocial, null, trader)
             option.iconThing <- negotiator
             FloatMenuUtility.DecoratePrioritizedTask(option, negotiator, LocalTargetInfo(trader))
+
+    let private ratkinTalkJob (trader: Pawn) =
+        if isRatkinWanderingCaravanLeader trader then DefDatabase<JobDef>.GetNamedSilentFail("RK_Job_TalkToCaravanLeader") |> Option.ofObj else None
+
+    let makeOption (trader: Pawn) =
+        let order =
+            match ratkinTalkJob trader with
+            | Some talkJob ->
+                { IsTarget = isRatkinWanderingCaravanLeader
+                  CanOrder = canTalkToRatkinLeader
+                  Job = talkJob
+                  LabelKey = "EzTrade_TalkWithRatkinCaravanLeader"
+                  NoPawnKey = "EzTrade_NoAvailableSpeaker"
+                  UnavailableKey = "EzTrade_TalkNoLongerAvailable"
+                  OnStarted = ignore }
+            | None ->
+                { IsTarget = isAvailableTrader
+                  CanOrder = canNegotiateWith
+                  Job = JobDefOf.TradeWithPawn
+                  LabelKey = "EzTrade_TradeWith"
+                  NoPawnKey = "EzTrade_NoAvailableNegotiator"
+                  UnavailableKey = "EzTrade_TradeNoLongerAvailable"
+                  OnStarted = fun () -> PlayerKnowledgeDatabase.KnowledgeDemonstrated(ConceptDefOf.InteractingWithTraders, KnowledgeAmount.Total) }
+
+        orderOption order trader
 
 [<HarmonyPatch(typeof<Selector>, "HandleMapClicks")>]
 module internal SelectorHandleMapClicksPatch =
     let Prefix () =
         let currentEvent = Event.current
 
-        if currentEvent.``type`` <> EventType.MouseDown || currentEvent.button <> 1 || Find.Selector.SelectedPawns.Any(fun pawn -> pawn.CanTakeOrder) then
+        if currentEvent.``type`` <> EventType.MouseDown || currentEvent.button <> 1 || Find.Selector.SelectedPawns |> Seq.exists _.CanTakeOrder then
             true
         else
-            let clickPos = UI.MouseMapPosition()
-
-            match EzTradeOrders.traderAt clickPos with
+            match EzTradeOrders.traderAt (UI.MouseMapPosition()) with
             | None -> true
             | Some trader ->
                 let menu = FloatMenu(ResizeArray [ EzTradeOrders.makeOption trader ])
@@ -80,312 +134,243 @@ module internal SelectorHandleMapClicksPatch =
                 false
 
 module internal PodTradeHelper =
-    let getSettlement (action: TransportersArrivalAction_GiveGift) : Settlement = Traverse.Create(action).Field<Settlement>("settlement").Value
+    let private present (xs: seq<'T | null> | null) : seq<'T> =
+        match xs with
+        | null -> Seq.empty
+        | xs -> Seq.choose Option.ofObj xs
 
-    let getItems (part: QuestPart_GiveToCaravan) : System.Collections.Generic.List<Thing> =
-        Traverse.Create(part).Field<System.Collections.Generic.List<Thing>>("items").Value
+    let private containers (transporters: seq<ActiveTransporterInfo | null> | null) = present transporters |> Seq.choose (_.innerContainer >> Option.ofObj)
 
-    let getPawns (part: QuestPart_GiveToCaravan) : System.Collections.Generic.List<Pawn> =
-        Traverse.Create(part).Field<System.Collections.Generic.List<Pawn>>("pawns").Value
+    let private heldThings (pods: seq<IThingHolder | null> | null) : seq<Thing> =
+        present pods
+        |> Seq.collect (fun pod ->
+            match pod.GetDirectlyHeldThings() with
+            | null -> Seq.empty
+            | things -> Seq.cast things)
 
-    let countMatchingItems (transporters: seq<ActiveTransporterInfo>) (reqDef: ThingDef) =
-        if isNull transporters then
-            0
-        else
-            transporters
-            |> Seq.filter (fun t -> not (isNull t.innerContainer))
-            |> Seq.sumBy (fun t -> t.innerContainer |> Seq.filter (fun thing -> thing.def = reqDef) |> Seq.sumBy (fun thing -> thing.stackCount))
+    let private countOf (reqDef: ThingDef) (things: seq<Thing>) = things |> Seq.filter (fun thing -> thing.def = reqDef) |> Seq.sumBy _.stackCount
 
-    let consumeRequiredItems (transporters: seq<ActiveTransporterInfo>) (reqDef: ThingDef) (reqCount: int) =
-        let consumeFromContainer (container: ThingOwner) (amountNeeded: int) =
-            if amountNeeded <= 0 then
-                0
-            else
-                let things = container |> Seq.toList
-                things
-                |> List.fold
-                    (fun remaining thing ->
-                        if remaining <= 0 then
-                            0
-                        elif thing.def = reqDef then
-                            let take = min thing.stackCount remaining
-                            if take > 0 then
-                                let taken = container.Take(thing, take)
-                                if not (isNull taken) then
-                                    taken.Destroy(DestroyMode.Vanish)
-                            remaining - take
-                        else
-                            remaining)
-                    amountNeeded
+    let countMatchingItems transporters reqDef = containers transporters |> Seq.collect id |> countOf reqDef
 
-        if not (isNull transporters) then
-            transporters
-            |> Seq.filter (fun t -> not (isNull t.innerContainer))
-            |> Seq.fold (fun remaining trans -> consumeFromContainer trans.innerContainer remaining) reqCount
-            |> ignore
+    let countMatchingInPods pods reqDef = heldThings pods |> countOf reqDef
+
+    let consumeRequiredItems transporters (reqDef: ThingDef) (reqCount: int) =
+        let consumeFromContainer (remaining: int) (container: ThingOwner) =
+            container
+            |> Seq.toList
+            |> List.fold
+                (fun remaining thing ->
+                    if remaining <= 0 || thing.def <> reqDef then
+                        remaining
+                    else
+                        let take = min thing.stackCount remaining
+
+                        if take > 0 then
+                            match container.Take(thing, take) with
+                            | null -> ()
+                            | taken -> taken.Destroy(DestroyMode.Vanish)
+
+                        remaining - take)
+                remaining
+
+        containers transporters |> Seq.fold consumeFromContainer reqCount |> ignore
 
     let getQuestName (settlement: Settlement) =
-        if isNull Find.QuestManager then
-            "Trade Request"
-        else
-            Find.QuestManager.QuestsListForReading
-            |> Seq.filter (fun q -> q.State = QuestState.Ongoing)
-            |> Seq.tryPick (fun q ->
-                q.PartsListForReading
-                |> Seq.tryPick (fun part ->
-                    match part with
-                    | :? QuestPart_InitiateTradeRequest as initPart -> if initPart.settlement = settlement then Some q.name else None
+        let fallback = "Trade Request"
+
+        match Find.QuestManager with
+        | null -> fallback
+        | quests ->
+            quests.QuestsListForReading
+            |> Seq.filter (fun quest -> quest.State = QuestState.Ongoing)
+            |> Seq.tryPick (fun quest ->
+                quest.PartsListForReading
+                |> Seq.tryPick (function
+                    | :? QuestPart_InitiateTradeRequest as part when part.settlement = settlement -> Some quest.name
                     | _ -> None))
-            |> Option.defaultValue "Trade Request"
+            |> Option.defaultValue fallback
 
-    let calculateLeftoverGoodwill (pods: seq<IThingHolder>) (settlement: Settlement) (reqDef: ThingDef) (reqCount: int) =
-        if isNull pods || isNull settlement then
-            0
-        else
-            let allMatchingThings =
-                pods
-                |> Seq.collect (fun pod ->
-                    let container = pod.GetDirectlyHeldThings()
-                    if isNull container then Seq.empty else container :> seq<Thing>)
-                |> Seq.filter (fun t -> t.def = reqDef)
-                |> Seq.toList
+    /// Goodwill from the gift that remains after the requested items are removed.
+    let calculateLeftoverGoodwill (pods: seq<IThingHolder> | null) (settlement: Settlement) (reqDef: ThingDef) (reqCount: int) =
+        match pods with
+        | null -> 0
+        | pods ->
+            let backups = heldThings pods |> Seq.filter (fun thing -> thing.def = reqDef) |> Seq.map (fun thing -> thing, thing.stackCount) |> Seq.toList
 
-            let backups = allMatchingThings |> List.map (fun t -> t, t.stackCount)
+            backups
+            |> List.fold
+                (fun remaining (thing, count) ->
+                    let consume = min count remaining
+                    thing.stackCount <- count - consume
+                    remaining - consume)
+                reqCount
+            |> ignore
 
-            let rec reduce countRemaining (things: (Thing * int) list) =
-                if countRemaining > 0 then
-                    match things with
-                    | [] -> ()
-                    | (t, originalCount) :: tail ->
-                        let consume = min originalCount countRemaining
-                        t.stackCount <- originalCount - consume
-                        reduce (countRemaining - consume) tail
+            try
+                FactionGiftUtility.GetGoodwillChange(pods, settlement)
+            finally
+                for thing, count in backups do
+                    thing.stackCount <- count
 
-            reduce reqCount backups
-            let leftoverScore = FactionGiftUtility.GetGoodwillChange(pods, settlement)
-            backups |> List.iter (fun (t, originalCount) -> t.stackCount <- originalCount)
-            leftoverScore
+    let private launchableOf (transporter: CompTransporter | null) =
+        match transporter with
+        | null -> null
+        | transporter -> transporter.Launchable
 
-    let getCompLaunchable (pods: seq<IThingHolder>) : CompLaunchable =
-        if isNull pods || Seq.isEmpty pods then
+    let private reflectLaunchable (pod: IThingHolder) : CompLaunchable | null =
+        let instanceMembers = BindingFlags.Public ||| BindingFlags.NonPublic ||| BindingFlags.Instance
+        let podType = pod.GetType()
+
+        try
+            match podType.GetProperty("Launchable", instanceMembers), podType.GetProperty("Transporter", instanceMembers) with
+            | NonNull launchable, _ -> launchable.GetValue(pod) :?> (CompLaunchable | null)
+            | Null, NonNull transporter -> transporter.GetValue(pod) :?> (CompTransporter | null) |> launchableOf
+            | Null, Null ->
+                match podType.GetField("launchable", instanceMembers) with
+                | null -> null
+                | field -> field.GetValue(pod) :?> (CompLaunchable | null)
+        with _ ->
             null
-        else
-            let firstPod = Seq.head pods
-            if isNull firstPod then
-                null
-            else
-                match firstPod with
-                | :? CompTransporter as trans -> trans.Launchable
-                | _ ->
-                    match firstPod with
-                    | :? Thing as t ->
-                        let trans = t.TryGetComp<CompTransporter>()
-                        if isNull trans then null else trans.Launchable
-                    | _ ->
-                        try
-                            let launchableProp =
-                                firstPod.GetType().GetProperty("Launchable", BindingFlags.Public ||| BindingFlags.NonPublic ||| BindingFlags.Instance)
-                            if not (isNull launchableProp) then
-                                launchableProp.GetValue(firstPod) :?> CompLaunchable
-                            else
-                                let transProp =
-                                    firstPod.GetType().GetProperty("Transporter", BindingFlags.Public ||| BindingFlags.NonPublic ||| BindingFlags.Instance)
-                                if not (isNull transProp) then
-                                    let transObj = transProp.GetValue(firstPod) :?> CompTransporter
-                                    if isNull transObj then null else transObj.Launchable
-                                else
-                                    let launchableField =
-                                        firstPod.GetType().GetField("launchable", BindingFlags.Public ||| BindingFlags.NonPublic ||| BindingFlags.Instance)
-                                    if not (isNull launchableField) then launchableField.GetValue(firstPod) :?> CompLaunchable else null
-                        with _ ->
-                            null
+
+    let getCompLaunchable (pods: seq<IThingHolder | null> | null) : CompLaunchable | null =
+        match pods |> Option.ofObj |> Option.bind Seq.tryHead with
+        | None
+        | Some Null -> null
+        | Some(NonNull(:? CompTransporter as transporter)) -> transporter.Launchable
+        | Some(NonNull(:? Thing as thing)) -> thing.TryGetComp<CompTransporter>() |> launchableOf
+        | Some(NonNull pod) -> reflectLaunchable pod
 
 [<HarmonyPatch(typeof<TransportersArrivalAction_GiveGift>, "Arrived")>]
 module TransportersArrivalAction_GiveGift_Patch =
-    let Prefix (__instance: TransportersArrivalAction_GiveGift, transporters: System.Collections.Generic.List<ActiveTransporterInfo>, tile: PlanetTile) =
+    let Prefix (__instance: TransportersArrivalAction_GiveGift, transporters: List<ActiveTransporterInfo>, tile: PlanetTile) =
         try
-            Log.Message("[EzTrade] TransportersArrivalAction_GiveGift.Arrived patch triggered")
-            let tryFulfill (comp: TradeRequestComp) =
-                let totalCount = PodTradeHelper.countMatchingItems transporters comp.requestThingDef
-                Log.Message(sprintf "[EzTrade] Fulfill check - Required: %s x%d, In pods: %d" comp.requestThingDef.defName comp.requestCount totalCount)
-                if totalCount >= comp.requestCount then
-                    PodTradeHelper.consumeRequiredItems transporters comp.requestThingDef comp.requestCount
+            let settlement = Fields.giftSettlement.Invoke(__instance)
 
-                    let parent = comp.parent
-                    if not (isNull parent) then
-                        let subjectArg = NamedArgument(parent, "SUBJECT")
-                        QuestUtility.SendQuestTargetSignals(parent.questTags, "TradeRequestFulfilled", subjectArg)
+            match settlement |> Option.ofObj |> Option.bind (_.GetComponent<TradeRequestComp>() >> Option.ofObj) with
+            | Some comp when comp.ActiveRequest && PodTradeHelper.countMatchingItems transporters comp.requestThingDef >= comp.requestCount ->
+                PodTradeHelper.consumeRequiredItems transporters comp.requestThingDef comp.requestCount
 
-                    comp.Disable()
+                match comp.parent with
+                | null -> ()
+                | parent -> QuestUtility.SendQuestTargetSignals(parent.questTags, "TradeRequestFulfilled", NamedArgument(parent, "SUBJECT"))
 
-                    let settlement = PodTradeHelper.getSettlement __instance
-                    let msg = "PodTrade.Fulfilled".Translate(settlement.Label.Named("settlement")) |> string
-                    Messages.Message(msg, MessageTypeDefOf.PositiveEvent, true)
-
-            Option.ofObj (PodTradeHelper.getSettlement __instance)
-            |> Option.bind (fun s -> Option.ofObj (s.GetComponent<TradeRequestComp>()))
-            |> Option.filter (fun comp -> comp.ActiveRequest)
-            |> Option.iter tryFulfill
+                comp.Disable()
+                Messages.Message("PodTrade.Fulfilled".Translate(settlement.Label.Named("settlement")), MessageTypeDefOf.PositiveEvent, true)
+            | _ -> ()
         with ex ->
-            Log.Error(sprintf "[EzTrade] Error in TransportersArrivalAction_GiveGift.Arrived Prefix patch: %O" ex)
+            Log.Error $"[EzTrade] Error in TransportersArrivalAction_GiveGift.Arrived Prefix patch: {ex}"
+
         true
 
-[<HarmonyPatch(typeof<TransportersArrivalAction_GiveGift>, "GetFloatMenuOptions")>]
+[<HarmonyPatch(typeof<TransportersArrivalAction_GiveGift>, nameof TransportersArrivalAction_GiveGift.GetFloatMenuOptions)>]
 module TransportersArrivalAction_GiveGift_GetFloatMenuOptions_Patch =
+    let private giftOption (pods: seq<IThingHolder>) (settlement: Settlement) (launchAction: Action<PlanetTile, TransportersArrivalAction>) =
+        let goodwillChange = FactionGiftUtility.GetGoodwillChange(pods, settlement)
+        let label = "GiveGiftViaTransportPods".Translate(settlement.Faction.Name.Named("factionName"), goodwillChange.Named("goodwillChange"))
+        FloatMenuOption(label, (fun () -> launchAction.Invoke(PlanetTile(settlement.Tile), TransportersArrivalAction_GiveGift(settlement))))
+
+    let private fulfillOption
+        (pods: seq<IThingHolder>)
+        (settlement: Settlement)
+        (launchAction: Action<PlanetTile, TransportersArrivalAction>)
+        (comp: TradeRequestComp)
+        =
+        let questName = PodTradeHelper.getQuestName settlement
+        let leftoverScore = PodTradeHelper.calculateLeftoverGoodwill pods settlement comp.requestThingDef comp.requestCount
+        let settlementArg = settlement.Label.Named("settlement")
+        let countArg = comp.requestCount.Named("requestThingCount")
+        let thingArg = comp.requestThingDef.LabelCap.Resolve().Named("requestedThingLabel")
+
+        let label, text =
+            if leftoverScore > 0 then
+                "PodTrade.FulfillLeftover".Translate(questName.Named("questName"), leftoverScore.Named("score")),
+                "PodTrade.ConfirmDescLeftover".Translate(settlementArg, countArg, thingArg, leftoverScore.Named("score"))
+            else
+                "PodTrade.Fulfill".Translate(questName.Named("questName")), "PodTrade.ConfirmDesc".Translate(settlementArg, countArg, thingArg)
+
+        let launch () =
+            let arrivalAction = TransportersArrivalAction_GiveGift(settlement)
+
+            match PodTradeHelper.getCompLaunchable pods with
+            | null -> launchAction.Invoke(PlanetTile(settlement.Tile), arrivalAction)
+            | launchable -> launchable.TryLaunch(PlanetTile(settlement.Tile), arrivalAction)
+
+        let confirm () = Find.WindowStack.Add(Dialog_MessageBox.CreateConfirmation(text, launch, true, "PodTrade.ConfirmTitle".Translate()))
+
+        FloatMenuOption(string label, confirm)
+
     let Prefix
         (
-            __result: byref<System.Collections.Generic.IEnumerable<FloatMenuOption>>,
+            __result: byref<IEnumerable<FloatMenuOption>>,
             launchAction: Action<PlanetTile, TransportersArrivalAction>,
             pods: seq<IThingHolder>,
-            settlement: Settlement
+            settlement: Settlement | null
         ) =
         try
-            Log.Message("[EzTrade] GetFloatMenuOptions Prefix patch triggered")
-            if isNull settlement then
-                __result <- Seq.empty
-            else
-                let report = TransportersArrivalAction_GiveGift.CanGiveGiftTo(pods, settlement)
-                if not report.Accepted then
-                    __result <- Seq.empty
-                else
-                    let tradeComp = settlement.GetComponent<TradeRequestComp>()
-                    let optionList = System.Collections.Generic.List<FloatMenuOption>()
-
-                    if not (isNull tradeComp) && tradeComp.ActiveRequest then
-                        let countMatchingInPod (holder: IThingHolder) =
-                            let container = holder.GetDirectlyHeldThings()
-                            if isNull container then
-                                0
-                            else
-                                container |> Seq.filter (fun thing -> thing.def = tradeComp.requestThingDef) |> Seq.sumBy (fun thing -> thing.stackCount)
-
-                        let totalCount = if isNull pods then 0 else pods |> Seq.sumBy countMatchingInPod
-                        Log.Message(sprintf "[EzTrade] Active request found. Matching count in pods: %d / %d" totalCount tradeComp.requestCount)
-
-                        if totalCount >= tradeComp.requestCount then
-                            let questName = PodTradeHelper.getQuestName settlement
-                            let leftoverScore = PodTradeHelper.calculateLeftoverGoodwill pods settlement tradeComp.requestThingDef tradeComp.requestCount
-
-                            let label =
-                                if leftoverScore > 0 then
-                                    "PodTrade.FulfillLeftover".Translate(questName.Named("questName"), leftoverScore.Named("score")) |> string
-                                else
-                                    "PodTrade.Fulfill".Translate(questName.Named("questName")) |> string
-
-                            let action =
-                                Action(fun () ->
-                                    let title = "PodTrade.ConfirmTitle".Translate() |> string
-                                    let text =
-                                        if leftoverScore > 0 then
-                                            "PodTrade.ConfirmDescLeftover"
-                                                .Translate(
-                                                    settlement.Label.Named("settlement"),
-                                                    tradeComp.requestCount.Named("requestThingCount"),
-                                                    tradeComp.requestThingDef.LabelCap.Resolve().Named("requestedThingLabel"),
-                                                    leftoverScore.Named("score")
-                                                )
-                                            |> string
-                                        else
-                                            "PodTrade.ConfirmDesc"
-                                                .Translate(
-                                                    settlement.Label.Named("settlement"),
-                                                    tradeComp.requestCount.Named("requestThingCount"),
-                                                    tradeComp.requestThingDef.LabelCap.Resolve().Named("requestedThingLabel")
-                                                )
-                                            |> string
-                                    let dialog =
-                                        Dialog_MessageBox.CreateConfirmation(
-                                            text,
-                                            (fun () ->
-                                                let compLaunchable = PodTradeHelper.getCompLaunchable pods
-                                                let customArrivalAction = TransportersArrivalAction_GiveGift(settlement)
-                                                if not (isNull compLaunchable) then
-                                                    compLaunchable.TryLaunch(PlanetTile(settlement.Tile), customArrivalAction)
-                                                else
-                                                    launchAction.Invoke(PlanetTile(settlement.Tile), customArrivalAction)),
-                                            true,
-                                            title
-                                        )
-                                    Find.WindowStack.Add(dialog))
-
-                            let opt = FloatMenuOption(label, action)
-                            Traverse.Create(opt).Field("labelInt").SetValue(label) |> ignore
-                            optionList.Add(opt)
-                        else
-                            let goodwillChange = FactionGiftUtility.GetGoodwillChange(pods, settlement)
-                            let label =
-                                "GiveGiftViaTransportPods".Translate(settlement.Faction.Name.Named("factionName"), goodwillChange.Named("goodwillChange"))
-                                |> string
-                            let opt =
-                                FloatMenuOption(
-                                    label,
-                                    Action(fun () -> launchAction.Invoke(PlanetTile(settlement.Tile), TransportersArrivalAction_GiveGift(settlement)))
-                                )
-                            optionList.Add(opt)
-                    else
-                        let goodwillChange = FactionGiftUtility.GetGoodwillChange(pods, settlement)
-                        let label =
-                            "GiveGiftViaTransportPods".Translate(settlement.Faction.Name.Named("factionName"), goodwillChange.Named("goodwillChange")) |> string
-                        let opt =
-                            FloatMenuOption(
-                                label,
-                                Action(fun () -> launchAction.Invoke(PlanetTile(settlement.Tile), TransportersArrivalAction_GiveGift(settlement)))
-                            )
-                        optionList.Add(opt)
-
-                    __result <- (optionList :> System.Collections.Generic.IEnumerable<FloatMenuOption>)
+            __result <-
+                match settlement with
+                | null -> Seq.empty
+                | settlement when not (TransportersArrivalAction_GiveGift.CanGiveGiftTo(pods, settlement).Accepted) -> Seq.empty
+                | settlement ->
+                    match settlement.GetComponent<TradeRequestComp>() with
+                    | NonNull comp when comp.ActiveRequest && PodTradeHelper.countMatchingInPods pods comp.requestThingDef >= comp.requestCount ->
+                        [ fulfillOption pods settlement launchAction comp ]
+                    | _ -> [ giftOption pods settlement launchAction ]
         with ex ->
-            Log.Error(sprintf "[EzTrade] Error in GetFloatMenuOptions Prefix: %O" ex)
+            Log.Error $"[EzTrade] Error in GetFloatMenuOptions Prefix: {ex}"
             __result <- Seq.empty
+
         false
 
 module internal ImpassableLaunch =
-    let addOceanOption (options: seq<FloatMenuOption>) (tile: PlanetTile) (launchAction: Action<PlanetTile, TransportersArrivalAction>) =
+    let addOceanOption (options: seq<FloatMenuOption>) (tile: PlanetTile) (launchAction: Action<PlanetTile, TransportersArrivalAction | null>) =
         if tile.Valid && Find.World.Impassable(tile) then
             let oceanOption =
-                FloatMenuOption(
-                    "EzTrade_DumpInOcean".Translate() |> string,
-                    Action(fun () -> launchAction.Invoke(tile, null)),
-                    MenuOptionPriority.Default,
-                    null,
-                    null
-                )
+                FloatMenuOption(string ("EzTrade_DumpInOcean".Translate()), (fun () -> launchAction.Invoke(tile, null)), MenuOptionPriority.Default, null, null)
             Seq.append options [ oceanOption ]
         else
             options
 
 [<HarmonyPatch(typeof<CompLaunchable>, "GetTransportersFloatMenuOptionsAt")>]
 module GetTransportersFloatMenuOptionsAt_Patch =
-    let Postfix (__result: seq<FloatMenuOption>, tile: PlanetTile, launchAction: Action<PlanetTile, TransportersArrivalAction>) =
+    let Postfix (__result: seq<FloatMenuOption>, tile: PlanetTile, launchAction: Action<PlanetTile, TransportersArrivalAction | null>) =
         ImpassableLaunch.addOceanOption __result tile launchAction
 
-[<HarmonyPatch(typeof<CompLaunchable>, "GetOptionsForTile")>]
+[<HarmonyPatch(typeof<CompLaunchable>, nameof CompLaunchable.GetOptionsForTile)>]
 module GetOptionsForTile_Patch =
-    let Postfix (__result: seq<FloatMenuOption>, tile: PlanetTile, launchAction: Action<PlanetTile, TransportersArrivalAction>) =
+    let Postfix (__result: seq<FloatMenuOption>, tile: PlanetTile, launchAction: Action<PlanetTile, TransportersArrivalAction | null>) =
         ImpassableLaunch.addOceanOption __result tile launchAction
 
 [<HarmonyPatch(typeof<QuestPart_GiveToCaravan>, "Notify_QuestSignalReceived")>]
 module QuestPart_GiveToCaravan_Patch =
     let Prefix (__instance: QuestPart_GiveToCaravan, signal: RimWorld.Signal) =
-        if signal.tag = __instance.inSignal && (isNull __instance.caravan || not __instance.caravan.Spawned) then
-            Option.ofObj Find.AnyPlayerHomeMap
-            |> Option.iter (fun map ->
-                let items = PodTradeHelper.getItems __instance
-                let pawns = PodTradeHelper.getPawns __instance
-                let dropThings = System.Collections.Generic.List<Thing>()
+        let caravanGone =
+            match __instance.caravan with
+            | null -> true
+            | caravan -> not caravan.Spawned
 
-                if not (isNull items) then
-                    items |> Seq.filter (fun t -> not t.Spawned) |> Seq.iter dropThings.Add
-                if not (isNull pawns) then
-                    pawns |> Seq.filter (fun p -> not p.Spawned) |> Seq.iter dropThings.Add
+        if signal.tag = __instance.inSignal && caravanGone then
+            match Find.AnyPlayerHomeMap with
+            | null -> ()
+            | map ->
+                let items = Fields.caravanItems.Invoke(__instance)
+                let pawns = Fields.caravanPawns.Invoke(__instance)
+                let unspawned (things: List<'T> | null) : seq<Thing> =
+                    match things with
+                    | null -> Seq.empty
+                    | things -> things |> Seq.cast<Thing> |> Seq.filter (fun thing -> not thing.Spawned)
+
+                let dropThings = List<Thing>(Seq.append (unspawned items) (unspawned pawns))
 
                 if dropThings.Count > 0 then
                     DropPodUtility.DropThingsNear(DropCellFinder.TradeDropSpot(map), map, dropThings, 0, false, false, true, false, true, null)
-                    Messages.Message("PodTrade.RewardsDropped".Translate() |> string, MessageTypeDefOf.PositiveEvent, true)
-                    if not (isNull items) then
-                        items.Clear()
-                    if not (isNull pawns) then
-                        pawns.Clear())
+                    Messages.Message("PodTrade.RewardsDropped".Translate(), MessageTypeDefOf.PositiveEvent, true)
+
+                    for list in [ items :> Collections.IList | null; pawns ] do
+                        match list with
+                        | null -> ()
+                        | list -> list.Clear()
+
         true
 
 [<StaticConstructorOnStartup>]

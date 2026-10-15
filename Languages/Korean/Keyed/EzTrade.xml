@@ -3,6 +3,9 @@
   <EzTrade_TradeWith>{name}와 거래 (거래 가격 개선 {tradePriceImprovement})</EzTrade_TradeWith>
   <EzTrade_NoAvailableNegotiator>거래할 수 없음: 가능한 주민이 없습니다</EzTrade_NoAvailableNegotiator>
   <EzTrade_TradeNoLongerAvailable>{name}은(는) 더 이상 이 상인과 거래할 수 없습니다.</EzTrade_TradeNoLongerAvailable>
+  <EzTrade_TalkWithRatkinCaravanLeader>{name}(으)로 랫킨 유랑단장과 대화 (거래 가격 개선 {tradePriceImprovement})</EzTrade_TalkWithRatkinCaravanLeader>
+  <EzTrade_NoAvailableSpeaker>대화할 수 없음: 가능한 정착민이 없습니다</EzTrade_NoAvailableSpeaker>
+  <EzTrade_TalkNoLongerAvailable>{name}은(는) 더 이상 이 랫킨 유랑단장과 대화할 수 없습니다.</EzTrade_TalkNoLongerAvailable>
 
   <PodTrade.Fulfilled>수송 포드를 통해 {settlement}의 교환 요청을 완수했습니다.</PodTrade.Fulfilled>
   <PodTrade.RewardsDropped>교환 요청 보상이 정착지에 드롭 포드로 도착했습니다.</PodTrade.RewardsDropped>

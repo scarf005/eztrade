@@ -3,6 +3,9 @@
   <EzTrade_TradeWith>Trade with {name} (Trade price improvement {tradePriceImprovement})</EzTrade_TradeWith>
   <EzTrade_NoAvailableNegotiator>Cannot trade: no available pawn</EzTrade_NoAvailableNegotiator>
   <EzTrade_TradeNoLongerAvailable>{name} can no longer trade with this merchant.</EzTrade_TradeNoLongerAvailable>
+  <EzTrade_TalkWithRatkinCaravanLeader>Talk to Ratkin caravan leader with {name} (Trade price improvement {tradePriceImprovement})</EzTrade_TalkWithRatkinCaravanLeader>
+  <EzTrade_NoAvailableSpeaker>Cannot talk: no available colonist</EzTrade_NoAvailableSpeaker>
+  <EzTrade_TalkNoLongerAvailable>{name} can no longer talk with this Ratkin caravan leader.</EzTrade_TalkNoLongerAvailable>
 
   <PodTrade.Fulfilled>Fulfilled the trade request from {settlement} via transport pods.</PodTrade.Fulfilled>
   <PodTrade.RewardsDropped>Quest rewards have been delivered to your settlement via drop pods.</PodTrade.RewardsDropped>

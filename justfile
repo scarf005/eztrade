@@ -5,12 +5,24 @@ mod_directory := "EzTrade"
 
 # Format F# with Fantomas.
 fmt:
-    mise exec dotnet@8.0.422 -- dotnet tool restore
-    mise exec dotnet@8.0.422 -- dotnet tool run fantomas Source/EzTrade
+    mise exec dotnet@10.0.301 -- dotnet tool restore
+    mise exec dotnet@10.0.301 -- dotnet tool run fantomas Source/EzTrade
 
-# Build the mod assembly.
-build:
-    mise exec dotnet@8.0.422 -- dotnet build Source/EzTrade/EzTrade.fsproj -c Release
+legacy_ref := env("RIMWORLD_1_6_REF", "rimworld-1.6")
+legacy_dir := "Source/obj/rimworld-1.6"
+
+# Build the RimWorld 1.7 and frozen 1.6 assemblies.
+build: build-17 build-16
+
+# Build the RimWorld 1.7 assembly.
+build-17:
+    mise exec dotnet@10.0.301 -- dotnet build Source/EzTrade/EzTrade.fsproj -c Release
+
+# Build the RimWorld 1.6 assembly from the frozen 1.6 branch.
+build-16:
+    mkdir -p {{legacy_dir}}
+    git archive {{legacy_ref}} Source | tar -x -C {{legacy_dir}}
+    mise exec dotnet@10.0.301 -- dotnet build {{legacy_dir}}/Source/EzTrade/EzTrade.fsproj -c Release -p:OutputPath="$PWD/1.6/Assemblies/"
 
 # Build and install the runtime mod locally.
 install: build
@@ -29,6 +41,7 @@ install: build
         --exclude '/README*' \
         --exclude '/LICENSE*' \
         --exclude '/justfile' \
+        --exclude '*~' \
         ./ "$destination/"
     printf 'Installed {{mod_directory}} to %s\n' "$destination"
 
@@ -41,7 +54,7 @@ install-enable: install
     from pathlib import Path
 
     if subprocess.run(
-        ["pgrep", "-x", "RimWorldLinux"],
+        ["pgrep", "-x", "RimWorldLinux|RimWorld"],
         check=False,
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
